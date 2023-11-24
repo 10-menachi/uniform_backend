@@ -2,6 +2,7 @@ import express from 'express';
 import User from '../models/user_model.js';
 import { getRefreshToken, getToken } from '../utils/auth.js';
 import { COOKIE_OPTIONS } from '../utils/auth.js';
+import passport from 'passport';
 
 const router = express.Router();
 
@@ -81,6 +82,27 @@ router.post('/signup', async (req, res, next) => {
       .status(500)
       .json({ error: 'ServerError', message: 'Internal server error.' });
   }
+});
+
+router.post('/login', passport.authenticate('local'), (req, res, next) => {
+  const token = getToken({ _id: req.user._id });
+  const refreshToken = getRefreshToken({ _id: req.user._id });
+  User.findById(req.user._id).then(
+    (user) => {
+      user.refreshToken.push({ refreshToken });
+      user
+        .save()
+        .then((updatedUser) => {
+          res.cookie('refreshToken', refreshToken, COOKIE_OPTIONS);
+          res.send({ success: true, token });
+        })
+        .catch((err) => {
+          res.statusCode = 500;
+          res.send(err);
+        });
+    },
+    (err) => next(err),
+  );
 });
 
 export default router;

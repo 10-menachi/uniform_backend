@@ -9,6 +9,7 @@ import './strategies/JWTStrategy.js';
 import './strategies/LocalStrategy.js';
 import './utils/auth.js';
 import userRouter from './routes/userRoutes.js';
+import session from 'express-session';
 
 if (process.env.NODE_ENV !== 'production') {
   dotenv.config();
@@ -37,6 +38,15 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
+app.use(
+  session({
+    secret: 'gWF6Zc4EQoKlMde6',
+    resave: false,
+    saveUninitialized: true,
+  }),
+);
+
+app.use(passport.session());
 app.use(passport.initialize());
 
 app.use('/users', userRouter);
