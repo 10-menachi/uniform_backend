@@ -10,6 +10,7 @@ import './strategies/LocalStrategy.js';
 import './utils/auth.js';
 import userRouter from './routes/userRoutes.js';
 import session from 'express-session';
+import User from './models/user_model.js';
 
 if (process.env.NODE_ENV !== 'production') {
   dotenv.config();
@@ -48,6 +49,19 @@ app.use(
 
 app.use(passport.session());
 app.use(passport.initialize());
+
+passport.serializeUser((user, done) => {
+  done(null, user._id);
+});
+
+passport.deserializeUser(async (id, done) => {
+  try {
+    const user = await User.findById(id);
+    done(null, user);
+  } catch (error) {
+    done(error, null);
+  }
+});
 
 app.use('/users', userRouter);
 
