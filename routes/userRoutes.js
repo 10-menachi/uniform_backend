@@ -3,6 +3,7 @@ import User from '../models/user_model.js';
 import { getRefreshToken, getToken } from '../utils/auth.js';
 import { COOKIE_OPTIONS } from '../utils/auth.js';
 import passport from 'passport';
+import jwt from 'jsonwebtoken';
 
 const router = express.Router();
 
@@ -23,35 +24,20 @@ router.post('/signup', async (req, res, next) => {
     const findCompanyName = await User.findOne({ companyName });
     const findSchoolName = await User.findOne({ schoolName });
 
-    if (existingUser) {
-      return res.status(400).json({
-        error: 'UsernameTaken',
-        message:
-          'The provided username is already taken. Please choose a different one.',
-      });
-    }
+    if (existingUser || findEmail || findCompanyName || findSchoolName) {
+      const errorType = existingUser
+        ? 'UsernameTaken'
+        : findEmail
+        ? 'EmailTaken'
+        : findCompanyName
+        ? 'CompanyNameTaken'
+        : 'SchoolNameTaken';
 
-    if (findEmail) {
       return res.status(400).json({
-        error: 'EmailTaken',
-        message:
-          'The provided email is already taken. Please choose a different one.',
-      });
-    }
-
-    if (findCompanyName) {
-      return res.status(400).json({
-        error: 'CompanyNameTaken',
-        message:
-          'The provided company name is already taken. Please choose a different one.',
-      });
-    }
-
-    if (findSchoolName) {
-      return res.status(400).json({
-        error: 'SchoolNameTaken',
-        message:
-          'The provided school name is already taken. Please choose a different one.',
+        error: errorType,
+        message: `The provided ${
+          errorType === 'UsernameTaken' ? 'username' : errorType.toLowerCase()
+        } is already taken. Please choose a different one.`,
       });
     }
 
@@ -84,28 +70,31 @@ router.post('/signup', async (req, res, next) => {
   }
 });
 
-router.post('/login', passport.authenticate('local'), (req, res, next) => {
-  const token = getToken({ _id: req.user._id });
-  const refreshToken = getRefreshToken({ _id: req.user._id });
-  User.findById(req.user._id).then(
-    (user) => {
-      user.refreshToken.push({ refreshToken });
-      user
-        .save()
-        .then((updatedUser) => {
-          res.cookie('refreshToken', refreshToken, COOKIE_OPTIONS);
-          res.send({ success: true, token });
-        })
-        .catch((err) => {
-          res.statusCode = 500;
-          res.send(err);
-        });
-    },
-    (err) => next(err),
-  );
-});
+router.post(
+  '/login',
+  passport.authenticate('local'),
+  async (req, res, next) => {
+    try {
+      const token = getToken({ _id: req.user._id });
+      const refreshToken = getRefreshToken({ _id: req.user._id });
 
-router.post('/refreshToken', (req, res, next) => {
+      const user = await User.findById(req.user._id);
+
+      user.refreshToken.push({ refreshToken });
+
+      await user.save();
+
+      res.cookie('refreshToken', refreshToken, COOKIE_OPTIONS);
+      res.send({ success: true, token });
+    } catch (error) {
+      console.error('Error during user login:', error);
+      res
+        .status(500)
+        .json({ error: 'ServerError', message: 'Internal server error.' });
+    }
+  },
+);
+router.post('/refreshToken', async (req, res, next) => {
   const { signedCookies = {} } = req;
   const { refreshToken } = signedCookies;
 
@@ -116,38 +105,31 @@ router.post('/refreshToken', (req, res, next) => {
         process.env.REFRESH_TOKEN_SECRET,
       );
       const userId = payload._id;
-      User.findOne({ _id: userId }).then(
-        (user) => {
-          if (user) {
-            const tokenIndex = user.refreshToken.findIndex(
-              (item) => item.refreshToken === refreshToken,
-            );
 
-            if (tokenIndex === -1) {
-              res.statusCode = 401;
-              res.send('Unauthorized');
-            } else {
-              const token = getToken({ _id: userId });
+      const user = await User.findOne({ _id: userId });
 
-              const newRefreshToken = getRefreshToken({ _id: userId });
-              user.refreshToken[tokenIndex] = { refreshToken: newRefreshToken };
-              user.save((err, user) => {
-                if (err) {
-                  res.statusCode = 500;
-                  res.send(err);
-                } else {
-                  res.cookie('refreshToken', newRefreshToken, COOKIE_OPTIONS);
-                  res.send({ success: true, token });
-                }
-              });
-            }
-          } else {
-            res.statusCode = 401;
-            res.send('Unauthorized');
-          }
-        },
-        (err) => next(err),
-      );
+      if (user) {
+        const tokenIndex = user.refreshToken.findIndex(
+          (item) => item.refreshToken === refreshToken,
+        );
+
+        if (tokenIndex === -1) {
+          res.statusCode = 401;
+          res.send('Unauthorized');
+        } else {
+          const token = getToken({ _id: userId });
+          const newRefreshToken = getRefreshToken({ _id: userId });
+          user.refreshToken[tokenIndex] = { refreshToken: newRefreshToken };
+
+          await user.save();
+
+          res.cookie('refreshToken', newRefreshToken, COOKIE_OPTIONS);
+          res.send({ success: true, token });
+        }
+      } else {
+        res.statusCode = 401;
+        res.send('Unauthorized');
+      }
     } catch (err) {
       res.statusCode = 401;
       res.send('Unauthorized');
@@ -156,6 +138,10 @@ router.post('/refreshToken', (req, res, next) => {
     res.statusCode = 401;
     res.send('Unauthorized');
   }
+});
+
+router.get('/user', (req, res, next) => {
+  res.send(req.user);
 });
 
 export default router;
